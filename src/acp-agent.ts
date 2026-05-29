@@ -1983,23 +1983,52 @@ export class ClaudeAcpAgent implements Agent {
     const carriedResumePoints = session.resumePointByMessageId;
 
     await this.teardownSession(sessionId);
-    await this.createSession(createParams, {
-      resume: sessionId,
-      resumeSessionAt: resumeAt,
-    });
+
+    if (resumeAt === undefined) {
+      // Rewinding to before the first message: there is no preceding assistant
+      // turn to anchor on. Start a brand-new SDK conversation via the normal
+      // new-session path (fresh id), then re-key it to the existing ACP session
+      // id so Zed keeps talking to the same session. (Forcing the old id or
+      // deleting the transcript crashes the Claude Code process.)
+      const response = await this.createSession(createParams, {});
+      const freshSdkId = response.sessionId;
+      if (freshSdkId !== sessionId) {
+        const fresh = this.sessions[freshSdkId];
+        if (fresh) {
+          this.sessions[sessionId] = fresh;
+          delete this.sessions[freshSdkId];
+        }
+      }
+    } else {
+      await this.createSession(createParams, {
+        resume: sessionId,
+        resumeSessionAt: resumeAt,
+      });
+    }
 
     const recreated = this.sessions[sessionId];
     if (recreated) {
-      // Entries before the rewind point remain valid in the resumed transcript,
-      // so keep the id->anchor map; reset the live anchor to the rewind point.
-      recreated.resumePointByMessageId = carriedResumePoints;
-      recreated.lastAssistantUuid = resumeAt;
+      if (resumeAt === undefined) {
+        // Fresh session: the old anchors reference a deleted transcript.
+        recreated.resumePointByMessageId = new Map();
+        recreated.lastAssistantUuid = undefined;
+      } else {
+        // Entries before the rewind point remain valid in the resumed
+        // transcript, so keep the id->anchor map; reset the live anchor.
+        recreated.resumePointByMessageId = carriedResumePoints;
+        recreated.lastAssistantUuid = resumeAt;
+      }
     }
   }
 
   private async createSession(
     params: NewSessionRequest,
-    creationOpts: { resume?: string; forkSession?: boolean; resumeSessionAt?: string } = {},
+    creationOpts: {
+      resume?: string;
+      forkSession?: boolean;
+      resumeSessionAt?: string;
+      newSessionId?: string;
+    } = {},
   ): Promise<NewSessionResponse> {
     // We want to create a new session id unless it is resume,
     // but not resume + forkSession.
@@ -2008,6 +2037,8 @@ export class ClaudeAcpAgent implements Agent {
       sessionId = randomUUID();
     } else if (creationOpts.resume) {
       sessionId = creationOpts.resume;
+    } else if (creationOpts.newSessionId) {
+      sessionId = creationOpts.newSessionId;
     } else {
       sessionId = randomUUID();
     }

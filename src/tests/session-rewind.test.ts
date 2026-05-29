@@ -15,7 +15,7 @@ describe("session rewind", () => {
       clientCapabilities: {},
     });
 
-    const meta = response.agentCapabilities._meta as
+    const meta = response.agentCapabilities?._meta as
       | { zed?: { rewindSession?: unknown } }
       | undefined;
     expect(meta?.zed?.rewindSession).toBe(true);

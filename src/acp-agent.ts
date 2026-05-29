@@ -165,6 +165,16 @@ type Session = {
   /** Accumulated task list for the session, keyed by task ID. Task IDs are
    *  per-session, so this state must not be shared across sessions. */
   taskState: TaskState;
+  /** Original NewSession params, retained so the underlying SDK query can be
+   *  recreated (e.g. for the experimental Zed rewind via `resumeSessionAt`). */
+  createParams: NewSessionRequest;
+  /** UUID of the most recent top-level assistant message observed on this
+   *  session's transcript. Used as the `resumeSessionAt` anchor for rewinds. */
+  lastAssistantUuid: string | undefined;
+  /** Maps each client-supplied ACP message id to the assistant-message UUID
+   *  that immediately preceded its turn — i.e. the point to resume the
+   *  transcript at when rewinding to (re-running) that message. */
+  resumePointByMessageId: Map<string, string | undefined>;
 };
 
 /** Compute a stable fingerprint of the session-defining params so we can
@@ -617,6 +627,12 @@ export class ClaudeAcpAgent implements Agent {
           claudeCode: {
             promptQueueing: true,
           },
+          // Experimental Zed extension: this agent supports rewinding a
+          // session's transcript to an earlier message (edit-and-resend),
+          // signalled via `PromptRequest._meta.zed.rewindToMessageId`.
+          zed: {
+            rewindSession: true,
+          },
         },
         promptCapabilities: {
           image: true,
@@ -730,9 +746,26 @@ export class ClaudeAcpAgent implements Agent {
   }
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
+    // Experimental Zed rewind: if the client asked to rewind to an earlier
+    // message (edit-and-resend), recreate the underlying SDK query resuming the
+    // transcript just before that message's turn, then process the edited
+    // prompt against the rewound session.
+    const rewindMeta = params._meta?.["zed"] as { rewindToMessageId?: string } | undefined;
+    if (typeof rewindMeta?.rewindToMessageId === "string") {
+      await this.rewindSession(params.sessionId, rewindMeta.rewindToMessageId);
+    }
+
     const session = this.sessions[params.sessionId];
     if (!session) {
       throw new Error("Session not found");
+    }
+
+    // Record the resume anchor for this message id so a later rewind to it can
+    // restore the transcript to just before this turn. The anchor is the last
+    // top-level assistant message seen before this prompt.
+    const acpMessageId = typeof params.messageId === "string" ? params.messageId : undefined;
+    if (acpMessageId !== undefined) {
+      session.resumePointByMessageId.set(acpMessageId, session.lastAssistantUuid);
     }
 
     session.cancelled = false;
@@ -1183,6 +1216,9 @@ export class ClaudeAcpAgent implements Agent {
             // window. Subagent messages are excluded to keep the snapshot
             // aligned with what the user's current selection is producing.
             if (message.type === "assistant" && message.parent_tool_use_id === null) {
+              if (message.uuid) {
+                session.lastAssistantUuid = message.uuid;
+              }
               lastAssistantUsage = snapshotFromUsage(message.message.usage);
               lastAssistantTotalUsage = totalTokens(lastAssistantUsage);
               if (message.message.model && message.message.model !== "<synthetic>") {
@@ -1930,9 +1966,69 @@ export class ClaudeAcpAgent implements Agent {
     };
   }
 
+  /** Experimental Zed rewind. Recreates the session's underlying SDK query
+   *  resuming the transcript just before the turn that produced `toMessageId`,
+   *  by anchoring `resumeSessionAt` at the preceding assistant message. The ACP
+   *  session id is preserved. Mirrors getOrCreateSession's teardown+recreate.
+   *
+   *  If no anchor is known (e.g. rewinding to before the very first message),
+   *  this falls back to a full resume (no truncation) — a known prototype gap. */
+  private async rewindSession(sessionId: string, toMessageId: string): Promise<void> {
+    const session = this.sessions[sessionId];
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    const resumeAt = session.resumePointByMessageId.get(toMessageId);
+    const createParams = session.createParams;
+    const carriedResumePoints = session.resumePointByMessageId;
+
+    await this.teardownSession(sessionId);
+
+    if (resumeAt === undefined) {
+      // Rewinding to before the first message: there is no preceding assistant
+      // turn to anchor on. Start a brand-new SDK conversation via the normal
+      // new-session path (fresh id), then re-key it to the existing ACP session
+      // id so Zed keeps talking to the same session. (Forcing the old id or
+      // deleting the transcript crashes the Claude Code process.)
+      const response = await this.createSession(createParams, {});
+      const freshSdkId = response.sessionId;
+      if (freshSdkId !== sessionId) {
+        const fresh = this.sessions[freshSdkId];
+        if (fresh) {
+          this.sessions[sessionId] = fresh;
+          delete this.sessions[freshSdkId];
+        }
+      }
+    } else {
+      await this.createSession(createParams, {
+        resume: sessionId,
+        resumeSessionAt: resumeAt,
+      });
+    }
+
+    const recreated = this.sessions[sessionId];
+    if (recreated) {
+      if (resumeAt === undefined) {
+        // Fresh session: the old anchors reference a deleted transcript.
+        recreated.resumePointByMessageId = new Map();
+        recreated.lastAssistantUuid = undefined;
+      } else {
+        // Entries before the rewind point remain valid in the resumed
+        // transcript, so keep the id->anchor map; reset the live anchor.
+        recreated.resumePointByMessageId = carriedResumePoints;
+        recreated.lastAssistantUuid = resumeAt;
+      }
+    }
+  }
+
   private async createSession(
     params: NewSessionRequest,
-    creationOpts: { resume?: string; forkSession?: boolean } = {},
+    creationOpts: {
+      resume?: string;
+      forkSession?: boolean;
+      resumeSessionAt?: string;
+      newSessionId?: string;
+    } = {},
   ): Promise<NewSessionResponse> {
     // We want to create a new session id unless it is resume,
     // but not resume + forkSession.
@@ -1941,6 +2037,8 @@ export class ClaudeAcpAgent implements Agent {
       sessionId = randomUUID();
     } else if (creationOpts.resume) {
       sessionId = creationOpts.resume;
+    } else if (creationOpts.newSessionId) {
+      sessionId = creationOpts.newSessionId;
     } else {
       sessionId = randomUUID();
     }
@@ -2290,6 +2388,9 @@ export class ClaudeAcpAgent implements Agent {
       contextWindowSize:
         inferContextWindowFromModel(models.currentModelId) ?? DEFAULT_CONTEXT_WINDOW,
       taskState,
+      createParams: params,
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
 
     return {

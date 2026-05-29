@@ -1548,6 +1548,9 @@ describe("stop reason propagation", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
   }
 
@@ -1692,6 +1695,9 @@ describe("stop reason propagation", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
 
     const response = await agent.prompt({
@@ -1851,6 +1857,9 @@ describe("session/close", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
     return agent.sessions[sessionId]!;
   }
@@ -1935,6 +1944,9 @@ describe("session/delete", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
     return agent.sessions[sessionId]!;
   }
@@ -2036,6 +2048,9 @@ describe("getOrCreateSession param change detection", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
     return agent.sessions[sessionId]!;
   }
@@ -2271,6 +2286,9 @@ describe("usage_update computation", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
   }
 
@@ -3171,6 +3189,9 @@ describe("emitRawSDKMessages", () => {
       emitRawSDKMessages,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
   }
 
@@ -3399,6 +3420,9 @@ describe("result origin handling", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
   }
 
@@ -3574,6 +3598,9 @@ describe("memory_recall handling", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
   }
 
@@ -3804,6 +3831,9 @@ describe("post-error recovery", () => {
       emitRawSDKMessages: false,
       contextWindowSize: 200000,
       taskState: new Map(),
+      createParams: { cwd: "/test", mcpServers: [] },
+      lastAssistantUuid: undefined,
+      resumePointByMessageId: new Map(),
     };
     return { interrupt };
   }

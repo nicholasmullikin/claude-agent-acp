@@ -48,6 +48,7 @@ import {
 import {
   CanUseTool,
   deleteSession,
+  forkSession,
   getSessionMessages,
   listSessions,
   McpServerConfig,
@@ -175,6 +176,13 @@ type Session = {
    *  that immediately preceded its turn — i.e. the point to resume the
    *  transcript at when rewinding to (re-running) that message. */
   resumePointByMessageId: Map<string, string | undefined>;
+  /** Maps each client-supplied ACP message id to the assistant-message UUID at
+   *  the END of that message's turn — the inclusive "up to" anchor used when
+   *  forking the conversation from that message (`session/fork` upToMessageId). */
+  forkPointByMessageId: Map<string, string | undefined>;
+  /** The ACP message id of the turn currently being processed, used to record
+   *  fork points as assistant messages stream in. */
+  currentMessageId: string | undefined;
 };
 
 /** Compute a stable fingerprint of the session-defining params so we can
@@ -677,23 +685,29 @@ export class ClaudeAcpAgent implements Agent {
   }
 
   async unstable_forkSession(params: ForkSessionRequest): Promise<ForkSessionResponse> {
-    const response = await this.createSession(
-      {
-        cwd: params.cwd,
-        mcpServers: params.mcpServers ?? [],
-        additionalDirectories: params.additionalDirectories,
-        _meta: params._meta,
-      },
-      {
-        resume: params.sessionId,
-        forkSession: true,
-      },
-    );
-    // Needs to happen after we return the session
-    setTimeout(() => {
-      this.sendAvailableCommandsUpdate(response.sessionId);
-    }, 0);
-    return response;
+    // Use the SDK's forkSession() function rather than the `forkSession: true`
+    // query option. The function copies the source transcript into a NEW session
+    // file immediately, so a subsequent `session/load` can replay the shared
+    // history. The query option does not persist a replayable transcript at fork
+    // time, which left forked threads rendering empty. The new session is left
+    // for the client to load (which is how its history gets replayed).
+    //
+    // `_meta.zed.upToMessageId` (a client message id) optionally forks at an
+    // earlier point in the conversation rather than copying the whole thing.
+    const upToAcpMessageId = (params._meta as { zed?: { upToMessageId?: string } } | undefined)?.zed
+      ?.upToMessageId;
+    const sourceSession = this.sessions[params.sessionId];
+    const upToMessageId =
+      typeof upToAcpMessageId === "string"
+        ? sourceSession?.forkPointByMessageId.get(upToAcpMessageId)
+        : undefined;
+
+    const { sessionId: forkedSessionId } = await forkSession(params.sessionId, {
+      dir: params.cwd,
+      upToMessageId,
+    });
+
+    return { sessionId: forkedSessionId };
   }
 
   async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
@@ -764,6 +778,7 @@ export class ClaudeAcpAgent implements Agent {
     // restore the transcript to just before this turn. The anchor is the last
     // top-level assistant message seen before this prompt.
     const acpMessageId = typeof params.messageId === "string" ? params.messageId : undefined;
+    session.currentMessageId = acpMessageId;
     if (acpMessageId !== undefined) {
       session.resumePointByMessageId.set(acpMessageId, session.lastAssistantUuid);
     }
@@ -1218,6 +1233,11 @@ export class ClaudeAcpAgent implements Agent {
             if (message.type === "assistant" && message.parent_tool_use_id === null) {
               if (message.uuid) {
                 session.lastAssistantUuid = message.uuid;
+                // The fork "up to and including" anchor for the current turn is
+                // the latest top-level assistant message of that turn.
+                if (session.currentMessageId !== undefined) {
+                  session.forkPointByMessageId.set(session.currentMessageId, message.uuid);
+                }
               }
               lastAssistantUsage = snapshotFromUsage(message.message.usage);
               lastAssistantTotalUsage = totalTokens(lastAssistantUsage);
@@ -2391,6 +2411,8 @@ export class ClaudeAcpAgent implements Agent {
       createParams: params,
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
 
     return {

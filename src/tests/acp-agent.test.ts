@@ -1551,6 +1551,8 @@ describe("stop reason propagation", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
   }
 
@@ -1698,6 +1700,8 @@ describe("stop reason propagation", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
 
     const response = await agent.prompt({
@@ -1860,6 +1864,8 @@ describe("session/close", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
     return agent.sessions[sessionId]!;
   }
@@ -1947,6 +1953,8 @@ describe("session/delete", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
     return agent.sessions[sessionId]!;
   }
@@ -2051,6 +2059,8 @@ describe("getOrCreateSession param change detection", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
     return agent.sessions[sessionId]!;
   }
@@ -2289,6 +2299,8 @@ describe("usage_update computation", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
   }
 
@@ -3192,6 +3204,8 @@ describe("emitRawSDKMessages", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
   }
 
@@ -3423,6 +3437,8 @@ describe("result origin handling", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
   }
 
@@ -3601,6 +3617,8 @@ describe("memory_recall handling", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
   }
 
@@ -3834,6 +3852,8 @@ describe("post-error recovery", () => {
       createParams: { cwd: "/test", mcpServers: [] },
       lastAssistantUuid: undefined,
       resumePointByMessageId: new Map(),
+      forkPointByMessageId: new Map(),
+      currentMessageId: undefined,
     };
     return { interrupt };
   }
